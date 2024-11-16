@@ -34,10 +34,14 @@ public class GameScreen implements Screen {
     private Texture porkyTexture;
     private SpriteBatch batch;
 
-    private float obstacleSpawnTimer = 0;                       // Timer to track when to spawn new obstacles
-    private boolean isGameOver = false;                         // Track game-over state
-    private boolean isOnGround = true;                          // Track if Porky is on the ground
-    private float velocity = 0;                                 // Vertical velocity
+    private static final float FIXED_TIMESTEP = 1 / 60f;        // Set to 60 updates per second
+    private boolean restartBuffered = false;
+    private boolean jumpBuffered = false;
+    private float obstacleSpawnTimer = 0;
+    private boolean isGameOver = false;
+    private boolean isOnGround = true;
+    private float accumulator = 0f;                             // Accumulate delta time
+    private float velocity = 0;
     private float porkyY = 0;                                   // Y-position for Porky
     float porkyX = 0;                                           // X-Position for Porky
 
@@ -47,8 +51,8 @@ public class GameScreen implements Screen {
         showPorkyHitbox = new ShapeRenderer();
         gameOverLayout = new GlyphLayout();
         gameOverFont = new BitmapFont();
-        obstacles = new Array<>();
         batch = new SpriteBatch();
+        obstacles = new Array<>();
 
         gameOverTexture = new Texture("game-over.png");
         hayBaleTexture = new Texture("hay-bale.png");
@@ -66,7 +70,7 @@ public class GameScreen implements Screen {
         porkyHitbox = new Rectangle(porkyX, porkyY, porkyWidth, porkyHeight);
 
         // Initialize Obstacle Pool (To Prevent Garbage Collection)
-        obstaclePool = new Pool<Obstacle>() {
+        obstaclePool = new Pool<>() {
             @Override
             protected Obstacle newObject() {
                 return new Obstacle(800, 80, hayBaleTexture);      // X:800 Y:80 Obstacle spawn location
@@ -80,11 +84,27 @@ public class GameScreen implements Screen {
     @Override
     public void render(float delta) {
         draw();
-        if (!isGameOver) {          // Only update game if not over
-            logic(delta);
-        } else if (Gdx.input.isKeyJustPressed(Input.Keys.R)) {
-            restartGame();          // Restart if 'R' is pressed
+
+        // Handle input every frame
+        if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)) {
+            jumpBuffered = true;
         }
+        if (Gdx.input.isKeyJustPressed(Input.Keys.R)) {
+            restartBuffered = true;
+        }
+        // Accumulate delta time
+        accumulator += delta;
+
+        while (accumulator >= FIXED_TIMESTEP) {
+            if (!isGameOver) {                                  // Only update game if not over
+                logic();
+            } else if (restartBuffered) {
+                restartGame();                                  // Restart if 'R' is pressed
+            }
+            accumulator -= FIXED_TIMESTEP;
+        }
+        // Clear buffered inputs only after logic processing
+        restartBuffered = false;
     }
 
     @Override
@@ -213,21 +233,22 @@ public class GameScreen implements Screen {
         displayGameOverMessage();
     }
 
-    private void logic(float delta) {
-        float gravity = -0.43f;
+    private void  logic() {
+        float gravity = -1500f;
         int hitBoxOffsetX = 50;
         int hitBoxOffsetY = 40;
 
 
         // Handle jump input
-        if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE) && isOnGround) {
-            velocity = 10;                                        // Set an upward velocity for the jump
+        if (jumpBuffered && isOnGround) {
+            velocity = 600;                                       // Set an upward velocity for the jump
             isOnGround = false;                                   // Porky is no longer on the ground
+            jumpBuffered = false;                                 // Consume the jump input
         }
 
         // Apply gravity and update Porky's position
-        velocity += gravity;                                      // Apply gravity to the velocity
-        porkyY += velocity;                                       // Update Porky's Y position
+        velocity += gravity * FIXED_TIMESTEP;                     // Apply gravity to the velocity
+        porkyY += velocity * FIXED_TIMESTEP;                      // Update Porky's Y position
 
         // Check if Porky has landed back on the ground
         if (porkyY <= 90) {                                       // Assuming 90 is the ground level
@@ -241,7 +262,7 @@ public class GameScreen implements Screen {
         porkyHitbox.setSize(60, 50);
 
         // Spawn obstacles at intervals
-        obstacleSpawnTimer += delta;
+        obstacleSpawnTimer += FIXED_TIMESTEP;
         float obstacleSpawnInterval = 3f;                          // Time interval between obstacle spawns
         if (obstacleSpawnTimer >= obstacleSpawnInterval) {
             Obstacle obstacle = obstaclePool.obtain();
@@ -253,7 +274,7 @@ public class GameScreen implements Screen {
         // Update and remove obstacles
         for (int i = obstacles.size - 1; i >= 0; i--) {
             Obstacle obstacle = obstacles.get(i);
-            obstacle.update(delta);
+            obstacle.update(FIXED_TIMESTEP);
 
             if (obstacle.isOffScreen()) {
                 obstacles.removeIndex(i);
