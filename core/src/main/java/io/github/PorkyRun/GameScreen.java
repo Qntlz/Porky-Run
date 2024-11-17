@@ -20,7 +20,8 @@ import com.badlogic.gdx.Gdx;
 public class GameScreen implements Screen {
 
     private TextureRegion bgFrameBufferTextureRegion;
-    private ShapeRenderer showPorkyHitbox;
+    private Animation<TextureRegion> porkyAnimation;
+    private ShapeRenderer showHitbox;
     private Pool<Obstacle> obstaclePool;
     private GlyphLayout gameOverLayout;
     private Array<Obstacle> obstacles;
@@ -31,24 +32,28 @@ public class GameScreen implements Screen {
     private Texture hayBaleTexture;
     private BitmapFont restartFont;
     private Rectangle porkyHitbox;
-    private Texture porkyTexture;
     private SpriteBatch batch;
 
     private static final float FIXED_TIMESTEP = 1 / 60f;        // Set to 60 updates per second
     private boolean restartBuffered = false;
+    private final float porkyHeight = 170;
     private boolean jumpBuffered = false;
+    private final float porkyWidth = 170;
     private float obstacleSpawnTimer = 0;
     private boolean isGameOver = false;
     private boolean isOnGround = true;
-    private float accumulator = 0f;                             // Accumulate delta time
+    private float animationTime = 0;
+    private float accumulator = 0f;
     private float velocity = 0;
     private float porkyY = 0;                                   // Y-position for Porky
+    TextureAtlas atlas;
     float porkyX = 0;                                           // X-Position for Porky
+
 
 
     @Override
     public void show() {
-        showPorkyHitbox = new ShapeRenderer();
+        showHitbox = new ShapeRenderer();
         gameOverLayout = new GlyphLayout();
         gameOverFont = new BitmapFont();
         batch = new SpriteBatch();
@@ -56,15 +61,14 @@ public class GameScreen implements Screen {
 
         gameOverTexture = new Texture("game-over.png");
         hayBaleTexture = new Texture("hay-bale.png");
-        porkyTexture = new Texture("pigAsset.png");
+        atlas = new TextureAtlas(Gdx.files.internal("porky-atlas.atlas"));
+
+        Array<TextureAtlas.AtlasRegion> frames = atlas.findRegions("run");
+        porkyAnimation = new Animation<>(0.1f, frames, Animation.PlayMode.LOOP);
 
         // Initialize FrameBuffer for background optimization
         bgFrameBuffer = new FrameBuffer(Pixmap.Format.RGBA8888, 800, 500, false);
         viewport = new StretchViewport(800, 500);
-
-        // Porky's Texture Dimensions
-        float porkyHeight = 300;
-        float porkyWidth = 300;
 
         // Initialize Porky's hitbox
         porkyHitbox = new Rectangle(porkyX, porkyY, porkyWidth, porkyHeight);
@@ -84,6 +88,7 @@ public class GameScreen implements Screen {
     @Override
     public void render(float delta) {
         draw();
+        animationTime += delta;                                 // Animation time for Porky
 
         // Handle input every frame
         if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)) {
@@ -92,9 +97,8 @@ public class GameScreen implements Screen {
         if (Gdx.input.isKeyJustPressed(Input.Keys.R)) {
             restartBuffered = true;
         }
-        // Accumulate delta time
-        accumulator += delta;
 
+        accumulator += delta;                                   // Accumulate delta time
         while (accumulator >= FIXED_TIMESTEP) {
             if (!isGameOver) {                                  // Only update game if not over
                 logic();
@@ -103,8 +107,6 @@ public class GameScreen implements Screen {
             }
             accumulator -= FIXED_TIMESTEP;
         }
-        // Clear buffered inputs only after logic processing
-        restartBuffered = false;
     }
 
     @Override
@@ -127,8 +129,8 @@ public class GameScreen implements Screen {
     @Override
     public void dispose() {
         batch.dispose();
-        porkyTexture.dispose();
-        showPorkyHitbox.dispose();
+        showHitbox.dispose();
+        atlas.dispose();
         for (Obstacle obstacle : obstacles) {
             obstacle.dispose();
         }
@@ -136,6 +138,7 @@ public class GameScreen implements Screen {
         gameOverFont.dispose();
         hayBaleTexture.dispose();
         bgFrameBuffer.dispose();
+
     }
 
     private void handleFont(){
@@ -208,8 +211,9 @@ public class GameScreen implements Screen {
         // Draw background
         batch.draw(bgFrameBufferTextureRegion, 0, 0, viewport.getWorldWidth(), viewport.getWorldHeight());
 
-        // X-position for Porky
-        batch.draw(porkyTexture, porkyX, porkyY, porkyTexture.getWidth() / 3f, porkyTexture.getHeight() / 3f);
+        // Draw Porky Running Animation
+        TextureRegion currentFrame = porkyAnimation.getKeyFrame(animationTime);
+        batch.draw(currentFrame, porkyX, porkyY, porkyWidth,porkyHeight);
 
         // Draw each obstacle
         for (Obstacle obstacle : obstacles) {
@@ -218,25 +222,28 @@ public class GameScreen implements Screen {
         batch.end();
 
         // Draw hitbox using ShapeRenderer
-        showPorkyHitbox.begin(ShapeRenderer.ShapeType.Line);
-        showPorkyHitbox.setColor(0, 1, 0, 1);       // Green color for the hitbox
-        showPorkyHitbox.rect(porkyHitbox.x, porkyHitbox.y, porkyHitbox.width, porkyHitbox.height);
+        showHitbox.begin(ShapeRenderer.ShapeType.Line);
+        showHitbox.setColor(0, 1, 0, 1);       // Green color for the hitbox
+        showHitbox.rect(porkyHitbox.x, porkyHitbox.y, porkyHitbox.width, porkyHitbox.height);
 
         // Draw hitbox for each obstacle
-        showPorkyHitbox.setColor(1, 0, 0, 1);       // Red color for obstacle hitbox
+        showHitbox.setColor(1, 0, 0, 1);       // Red color for obstacle hitbox
         for (Obstacle obstacle : obstacles) {
             Rectangle obstacleHitbox = obstacle.getHitbox();
-            showPorkyHitbox.rect(obstacleHitbox.x, obstacleHitbox.y, obstacleHitbox.width, obstacleHitbox.height);
+            showHitbox.rect(obstacleHitbox.x, obstacleHitbox.y, obstacleHitbox.width, obstacleHitbox.height);
         }
 
-        showPorkyHitbox.end();
+        showHitbox.end();
         displayGameOverMessage();
     }
 
     private void  logic() {
         float gravity = -1500f;
         int hitBoxOffsetX = 50;
-        int hitBoxOffsetY = 40;
+        int hitBoxOffsetY = 60;
+        int obstacleStartPosX = 800;
+        int obstacleStartPosY = 80;
+        int ground = 63;
 
 
         // Handle jump input
@@ -251,8 +258,8 @@ public class GameScreen implements Screen {
         porkyY += velocity * FIXED_TIMESTEP;                      // Update Porky's Y position
 
         // Check if Porky has landed back on the ground
-        if (porkyY <= 90) {                                       // Assuming 90 is the ground level
-            porkyY = 90;
+        if (porkyY <= ground) {
+            porkyY = ground;
             isOnGround = true;                                    // Porky is back on the ground
             velocity = 0;                                         // Reset velocity
         }
@@ -263,10 +270,10 @@ public class GameScreen implements Screen {
 
         // Spawn obstacles at intervals
         obstacleSpawnTimer += FIXED_TIMESTEP;
-        float obstacleSpawnInterval = 3f;                          // Time interval between obstacle spawns
+        float obstacleSpawnInterval = 3f;                                   // Time interval between obstacle spawns
         if (obstacleSpawnTimer >= obstacleSpawnInterval) {
             Obstacle obstacle = obstaclePool.obtain();
-            obstacle.setPosition(800,80);             // Set the initial position for the obstacle
+            obstacle.setPosition(obstacleStartPosX,obstacleStartPosY);      // Set initial obstacle position
             obstacles.add(obstacle);
             obstacleSpawnTimer = 0;
         }
@@ -289,7 +296,8 @@ public class GameScreen implements Screen {
         for (Obstacle obstacle : obstacles) {
             // Use the existing hitbox for collision detection
             if (porkyHitbox.overlaps(obstacle.getHitbox())) {
-                isGameOver = true;                              // Set game over if there's a collision
+                isGameOver = true;
+                restartBuffered = false;
                 break;
             }
         }
