@@ -16,39 +16,45 @@ import com.badlogic.gdx.utils.Pool;
 import com.badlogic.gdx.Screen;
 import com.badlogic.gdx.Input;
 import com.badlogic.gdx.Gdx;
+import java.util.Random;
 
 public class GameScreen implements Screen {
 
     private TextureRegion bgFrameBufferTextureRegion;
     private Animation<TextureRegion> porkyAnimation;
-    private ShapeRenderer showHitbox;
+    private Array<Texture> cloudTextures;
     private Pool<Obstacle> obstaclePool;
     private GlyphLayout gameOverLayout;
     private Array<Obstacle> obstacles;
     private FrameBuffer bgFrameBuffer;
+    private Array<Cloud> activeClouds;
+    private ShapeRenderer showHitbox;
     private StretchViewport viewport;
     private BitmapFont gameOverFont;
     private Texture gameOverTexture;
+    private TextureRegion jumpFrame;
+    private TextureRegion bumpFrame;
     private Texture hayBaleTexture;
     private BitmapFont restartFont;
     private Rectangle porkyHitbox;
+    private Pool<Cloud> cloudPool;
+    private TextureAtlas atlas;
     private SpriteBatch batch;
+    private Random random;
 
     private static final float FIXED_TIMESTEP = 1 / 60f;        // Set to 60 updates per second
     private boolean restartBuffered = false;
     private final float porkyHeight = 170;
-    private boolean jumpBuffered = false;
     private final float porkyWidth = 170;
     private float obstacleSpawnTimer = 0;
+    private boolean jumpBuffered = false;
     private boolean isGameOver = false;
     private boolean isOnGround = true;
     private float animationTime = 0;
     private float accumulator = 0f;
     private float velocity = 0;
     private float porkyY = 0;                                   // Y-position for Porky
-    TextureAtlas atlas;
     float porkyX = 0;                                           // X-Position for Porky
-
 
 
     @Override
@@ -58,45 +64,36 @@ public class GameScreen implements Screen {
         gameOverFont = new BitmapFont();
         batch = new SpriteBatch();
         obstacles = new Array<>();
-
-        gameOverTexture = new Texture("game-over.png");
-        hayBaleTexture = new Texture("hay-bale.png");
-        atlas = new TextureAtlas(Gdx.files.internal("porky-atlas.atlas"));
-
-        Array<TextureAtlas.AtlasRegion> frames = atlas.findRegions("run");
-        porkyAnimation = new Animation<>(0.1f, frames, Animation.PlayMode.LOOP);
+        activeClouds = new Array<>();
+        random = new Random();
 
         // Initialize FrameBuffer for background optimization
         bgFrameBuffer = new FrameBuffer(Pixmap.Format.RGBA8888, 800, 500, false);
-        viewport = new StretchViewport(800, 500);
 
-        // Initialize Porky's hitbox
+        Texture jumpTexture = new Texture(Gdx.files.internal("porky_frames/jump.png"));
+        Texture bumpTexture = new Texture(Gdx.files.internal("porky_frames/bump.png"));
+        atlas = new TextureAtlas(Gdx.files.internal("porky-atlas.atlas"));
         porkyHitbox = new Rectangle(porkyX, porkyY, porkyWidth, porkyHeight);
+        viewport = new StretchViewport(800, 500);
+        gameOverTexture = new Texture("game-over.png");
+        hayBaleTexture = new Texture("hay-bale.png");
+        jumpFrame = new TextureRegion(jumpTexture);
+        bumpFrame = new TextureRegion(bumpTexture);
 
-        // Initialize Obstacle Pool (To Prevent Garbage Collection)
-        obstaclePool = new Pool<>() {
-            @Override
-            protected Obstacle newObject() {
-                return new Obstacle(800, 80, hayBaleTexture);      // X:800 Y:80 Obstacle spawn location
-            }
-        };
-
+        handlePorkyAnimation();
+        createObstaclePool();
+        createCloudPool();
         handleFont();
+        handleClouds();
         handleBg();
     }
 
     @Override
     public void render(float delta) {
         draw();
-        animationTime += delta;                                 // Animation time for Porky
+        animationTime += FIXED_TIMESTEP;                        // Animation time for Porky
 
-        // Handle input every frame
-        if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)) {
-            jumpBuffered = true;
-        }
-        if (Gdx.input.isKeyJustPressed(Input.Keys.R)) {
-            restartBuffered = true;
-        }
+        manageControls();
 
         accumulator += delta;                                   // Accumulate delta time
         while (accumulator >= FIXED_TIMESTEP) {
@@ -128,78 +125,19 @@ public class GameScreen implements Screen {
 
     @Override
     public void dispose() {
-        batch.dispose();
+        gameOverTexture.dispose();
+        hayBaleTexture.dispose();
+        bgFrameBuffer.dispose();
+        gameOverFont.dispose();
         showHitbox.dispose();
+        batch.dispose();
         atlas.dispose();
         for (Obstacle obstacle : obstacles) {
             obstacle.dispose();
         }
-        gameOverTexture.dispose();
-        gameOverFont.dispose();
-        hayBaleTexture.dispose();
-        bgFrameBuffer.dispose();
-
-    }
-
-    private void handleFont(){
-        FreeTypeFontGenerator generator = new FreeTypeFontGenerator(Gdx.files.internal("LuckiestGuy-Regular.ttf"));
-        FreeTypeFontParameter gameOverFontParam = new FreeTypeFontParameter();
-        FreeTypeFontParameter restartFontParam = new FreeTypeFontParameter();
-
-        // Game-Over Text Configuration
-        gameOverFontParam.size = 80;
-        gameOverFontParam.color = Color.RED;
-        gameOverFont = generator.generateFont(gameOverFontParam);
-
-        // Restart Text Configuration
-        restartFontParam.size = 40;
-        restartFontParam.color = Color.YELLOW;
-        restartFont = generator.generateFont(restartFontParam);
-
-
-        generator.dispose();
-    }
-
-    private void handleBg() {
-        Texture bgTexture = new Texture("background.png");
-        Sprite bgSprite = new Sprite(bgTexture);
-        bgSprite.setSize(viewport.getWorldWidth(), viewport.getWorldHeight());
-
-        // Render the background to the FrameBuffer
-        bgFrameBuffer.begin();
-        Gdx.gl.glClearColor(1, 1, 1, 1);        // Clear the FrameBuffer, Adjust to desired color
-        Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
-
-        batch.begin();
-        bgSprite.draw(batch);
-        batch.end();
-
-        bgFrameBuffer.end();
-        bgFrameBufferTextureRegion = new TextureRegion(bgFrameBuffer.getColorBufferTexture());
-        bgFrameBufferTextureRegion.flip(false, true);           // Flip vertically to correct inversion
-    }
-
-    private void displayGameOverMessage() {
-        if (isGameOver) {
-            batch.begin();
-            batch.draw(gameOverTexture,360 ,25,300,300);        // Draw Lechon-Baboy Image
-
-            String gameOverText = "GAME OVER!";
-            String restartText = "Press R to Restart";
-            gameOverLayout.setText(gameOverFont, gameOverText);
-            gameOverLayout.setText(restartFont, restartText);
-            gameOverFont.draw(batch, gameOverText, 320, 370);
-            restartFont.draw(batch, restartText, 200, 70);
-            batch.end();
+        for (Texture texture : cloudTextures) {
+            texture.dispose();
         }
-    }
-
-    private void restartGame() {
-        isGameOver = false;
-        porkyX = 0;
-        porkyY = 90;            // Reset Porky to the ground position
-        velocity = 0;
-        obstacles.clear();
     }
 
     private void draw() {
@@ -207,40 +145,28 @@ public class GameScreen implements Screen {
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
         viewport.apply();
 
+        spawnClouds();
+
         batch.begin();
         // Draw background
         batch.draw(bgFrameBufferTextureRegion, 0, 0, viewport.getWorldWidth(), viewport.getWorldHeight());
 
-        // Draw Porky Running Animation
-        TextureRegion currentFrame = porkyAnimation.getKeyFrame(animationTime);
-        batch.draw(currentFrame, porkyX, porkyY, porkyWidth,porkyHeight);
-
-        // Draw each obstacle
-        for (Obstacle obstacle : obstacles) {
-            obstacle.render(batch);
-        }
+        renderClouds();
+        renderObstacles();
+        managePorkyAnimation();
         batch.end();
 
-        // Draw hitbox using ShapeRenderer
-        showHitbox.begin(ShapeRenderer.ShapeType.Line);
-        showHitbox.setColor(0, 1, 0, 1);       // Green color for the hitbox
-        showHitbox.rect(porkyHitbox.x, porkyHitbox.y, porkyHitbox.width, porkyHitbox.height);
-
-        // Draw hitbox for each obstacle
-        showHitbox.setColor(1, 0, 0, 1);       // Red color for obstacle hitbox
-        for (Obstacle obstacle : obstacles) {
-            Rectangle obstacleHitbox = obstacle.getHitbox();
-            showHitbox.rect(obstacleHitbox.x, obstacleHitbox.y, obstacleHitbox.width, obstacleHitbox.height);
-        }
-
+        drawPorkyHitBox();
+        drawObstacleHitbox();
         showHitbox.end();
+
         displayGameOverMessage();
     }
 
-    private void  logic() {
+    private void logic() {
         float gravity = -1500f;
         int hitBoxOffsetX = 50;
-        int hitBoxOffsetY = 60;
+        int hitBoxOffsetY = 70;
         int obstacleStartPosX = 800;
         int obstacleStartPosY = 80;
         int ground = 63;
@@ -290,6 +216,178 @@ public class GameScreen implements Screen {
         }
         // Check for collisions
         checkCollisions();
+    }
+
+    private void handleFont(){
+        FreeTypeFontGenerator generator = new FreeTypeFontGenerator(Gdx.files.internal("LuckiestGuy-Regular.ttf"));
+        FreeTypeFontParameter gameOverFontParam = new FreeTypeFontParameter();
+        FreeTypeFontParameter restartFontParam = new FreeTypeFontParameter();
+
+        // Game-Over Text Configuration
+        gameOverFontParam.size = 80;
+        gameOverFontParam.color = Color.RED;
+        gameOverFont = generator.generateFont(gameOverFontParam);
+
+        // Restart Text Configuration
+        restartFontParam.size = 40;
+        restartFontParam.color = Color.YELLOW;
+        restartFont = generator.generateFont(restartFontParam);
+
+
+        generator.dispose();
+    }
+
+    private void handleBg() {
+        Texture bgTexture = new Texture("newBackground.png");
+        Sprite bgSprite = new Sprite(bgTexture);
+        bgSprite.setSize(viewport.getWorldWidth(), viewport.getWorldHeight());
+
+        // Render the background to the FrameBuffer
+        bgFrameBuffer.begin();
+        Gdx.gl.glClearColor(1, 1, 1, 1);        // Clear the FrameBuffer, Adjust to desired color
+        Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
+
+        batch.begin();
+        bgSprite.draw(batch);
+        batch.end();
+
+        bgFrameBuffer.end();
+        bgFrameBufferTextureRegion = new TextureRegion(bgFrameBuffer.getColorBufferTexture());
+        bgFrameBufferTextureRegion.flip(false, true);           // Flip vertically to correct inversion
+    }
+
+    private void handleClouds() {
+        cloudTextures = new Array<>();
+        cloudTextures.add(new Texture("clouds/1.png"));
+        cloudTextures.add(new Texture("clouds/2.png"));
+        cloudTextures.add(new Texture("clouds/3.png"));
+    }
+
+    private void handlePorkyAnimation(){
+        Array<TextureAtlas.AtlasRegion> frames = atlas.findRegions("run");
+        porkyAnimation = new Animation<>(0.1f, frames, Animation.PlayMode.LOOP);
+    }
+
+    private void createObstaclePool(){
+        // Initialize Obstacle Pool (To Prevent Garbage Collection)
+        obstaclePool = new Pool<>() {
+            @Override
+            protected Obstacle newObject() {
+                return new Obstacle(800, 80, hayBaleTexture);      // X:800 Y:80 Obstacle spawn location
+            }
+        };
+    }
+
+    private void createCloudPool(){
+        cloudPool = new Pool<>() {
+            @Override
+            protected Cloud newObject() {
+                return new Cloud(); // Cloud without a texture
+            }
+        };
+    }
+
+    private void manageControls(){
+        // Handle input every frame
+        if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)) {
+            jumpBuffered = true;
+        }
+        if (Gdx.input.isKeyJustPressed(Input.Keys.R)) {
+            restartBuffered = true;
+        }
+    }
+
+    private void managePorkyAnimation(){
+        TextureRegion currentFrame;
+        if (!isOnGround) {
+            currentFrame = jumpFrame;   // Use the jump frame if Porky is in the air
+        }
+        else if(isGameOver){
+            currentFrame = bumpFrame;   // Use the bump frame if game over
+        }
+        else {
+            // Use the running animation frame if Porky is on the ground
+            currentFrame = porkyAnimation.getKeyFrame(animationTime);
+        }
+        batch.draw(currentFrame, porkyX, porkyY, porkyWidth,porkyHeight);
+    }
+
+    private void spawnClouds() {
+        // Determine if a new cloud should spawn (you can adjust spawn frequency here)
+        if (random.nextFloat() < 0.0020f) {                                 // 0.10% chance per frame to spawn a new cloud
+            Cloud cloud = cloudPool.obtain();                               // Get a cloud from the pool
+            Texture randomTexture = cloudTextures.random();                 // Randomly select a cloud texture
+            cloud.setTexture(randomTexture);                                // Set the texture to the cloud
+
+            // Set cloud position and speed
+            cloud.setPosition(800, random.nextInt(30) + 170);   // Clouds start at right side, random Y-position
+            cloud.setSpeed(random.nextInt(20) + 30);                  // Random speed
+
+            activeClouds.add(cloud);
+        }
+
+        // Update and remove clouds that are off-screen
+        for (int i = activeClouds.size - 1; i >= 0; i--) {
+            Cloud cloud = activeClouds.get(i);
+            cloud.update(FIXED_TIMESTEP);
+
+            if (cloud.isOffScreen()) {
+                cloudPool.free(cloud);  // Return the cloud to the pool
+                activeClouds.removeIndex(i);  // Remove cloud from the active list
+            }
+        }
+    }
+
+    private void renderClouds() {
+        for (Cloud cloud : activeClouds) {
+            cloud.render(batch);
+        }
+    }
+
+    private void renderObstacles(){
+        // Draw each obstacle
+        for (Obstacle obstacle : obstacles) {
+            obstacle.render(batch);
+        }
+    }
+
+    private void drawPorkyHitBox(){
+        // Draw hitbox using ShapeRenderer
+        showHitbox.begin(ShapeRenderer.ShapeType.Line);
+        showHitbox.setColor(0, 1, 0, 1);       // Green color for the hitbox
+        showHitbox.rect(porkyHitbox.x, porkyHitbox.y, porkyHitbox.width, porkyHitbox.height);
+    }
+
+    private void drawObstacleHitbox(){
+        // Draw hitbox for each obstacle
+        showHitbox.setColor(1, 0, 0, 1);       // Red color for obstacle hitbox
+        for (Obstacle obstacle : obstacles) {
+            Rectangle obstacleHitbox = obstacle.getHitbox();
+            showHitbox.rect(obstacleHitbox.x, obstacleHitbox.y, obstacleHitbox.width, obstacleHitbox.height);
+        }
+    }
+
+    private void displayGameOverMessage() {
+        if (isGameOver) {
+            batch.begin();
+            batch.draw(gameOverTexture,360 ,25,300,300);        // Draw Lechon-Baboy Image
+
+            String gameOverText = "GAME OVER!";
+            String restartText = "Press R to Restart";
+            gameOverLayout.setText(gameOverFont, gameOverText);
+            gameOverLayout.setText(restartFont, restartText);
+            gameOverFont.draw(batch, gameOverText, 320, 370);
+            restartFont.draw(batch, restartText, 200, 70);
+            batch.end();
+        }
+    }
+
+    private void restartGame() {
+        isGameOver = false;
+        porkyX = 0;
+        porkyY = 90;            // Reset Porky to the ground position
+        velocity = 0;
+        obstacles.clear();
     }
 
     private void checkCollisions() {
