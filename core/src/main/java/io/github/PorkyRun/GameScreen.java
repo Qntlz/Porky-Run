@@ -328,7 +328,7 @@ public class GameScreen implements Screen {
     private void spawnClouds() {
         // First Condition: // Only generate clouds if the background is not "forest"
         // Second Condition: Determine if a new cloud should spawn (you can adjust spawn frequency here)
-        if (!currentBgTexture.toString().contains("forest") && random.nextFloat() < 0.0020f) {                  // 0.10% chance per frame to spawn a new cloud
+        if (!currentBgTexture.toString().contains("forest.png") && random.nextFloat() < 0.0020f) {                  // 0.10% chance per frame to spawn a new cloud
             Cloud cloud = cloudPool.obtain();                                                                   // Get a cloud from the pool
             Texture randomTexture = cloudTextures.random();                                                     // Randomly select a cloud texture
             cloud.setTexture(randomTexture);                                                                    // Set the texture to the cloud
@@ -345,7 +345,7 @@ public class GameScreen implements Screen {
             Cloud cloud = activeClouds.get(i);
             cloud.update(FIXED_TIMESTEP);
 
-            if (cloud.isOffScreen()) {
+            if (cloud.isOffScreen() || currentBgTexture.toString().contains("forest.png")) {
                 cloudPool.free(cloud);  // Return the cloud to the pool
                 activeClouds.removeIndex(i);  // Remove cloud from the active list
             }
