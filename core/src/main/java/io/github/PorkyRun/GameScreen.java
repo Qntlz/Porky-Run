@@ -42,6 +42,7 @@ public class GameScreen implements Screen {
     private TextureAtlas atlas;
     private SpriteBatch batch;
     private Random random;
+    private Texture currentBgTexture;
 
     private static final float FIXED_TIMESTEP = 1 / 60f;        // Set to 60 updates per second
     private boolean restartBuffered = false;
@@ -128,6 +129,7 @@ public class GameScreen implements Screen {
 
     @Override
     public void dispose() {
+        currentBgTexture.dispose();
         gameOverTexture.dispose();
         hayBaleTexture.dispose();
         bgFrameBuffer.dispose();
@@ -219,6 +221,14 @@ public class GameScreen implements Screen {
                 score++;
             }
         }
+
+        // Update Background
+        if (score == 5) {                                   // Change to "forest.png" when score reaches 10
+            currentBgTexture.dispose();                      // Dispose of the previous background to avoid memory leaks
+            currentBgTexture = new Texture("forest.png");
+            renderBackground();
+        }
+
         // Check for collisions
         checkCollisions();
     }
@@ -243,22 +253,8 @@ public class GameScreen implements Screen {
     }
 
     private void handleBg() {
-        Texture bgTexture = new Texture("newBackground.png");
-        Sprite bgSprite = new Sprite(bgTexture);
-        bgSprite.setSize(viewport.getWorldWidth(), viewport.getWorldHeight());
-
-        // Render the background to the FrameBuffer
-        bgFrameBuffer.begin();
-        Gdx.gl.glClearColor(1, 1, 1, 1);        // Clear the FrameBuffer, Adjust to desired color
-        Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
-
-        batch.begin();
-        bgSprite.draw(batch);
-        batch.end();
-
-        bgFrameBuffer.end();
-        bgFrameBufferTextureRegion = new TextureRegion(bgFrameBuffer.getColorBufferTexture());
-        bgFrameBufferTextureRegion.flip(false, true);           // Flip vertically to correct inversion
+        currentBgTexture = new Texture("newBackground.png"); // Default background
+        renderBackground();
     }
 
     private void handleClouds() {
@@ -330,11 +326,12 @@ public class GameScreen implements Screen {
     }
 
     private void spawnClouds() {
-        // Determine if a new cloud should spawn (you can adjust spawn frequency here)
-        if (random.nextFloat() < 0.0020f) {                                 // 0.10% chance per frame to spawn a new cloud
-            Cloud cloud = cloudPool.obtain();                               // Get a cloud from the pool
-            Texture randomTexture = cloudTextures.random();                 // Randomly select a cloud texture
-            cloud.setTexture(randomTexture);                                // Set the texture to the cloud
+        // First Condition: // Only generate clouds if the background is not "forest"
+        // Second Condition: Determine if a new cloud should spawn (you can adjust spawn frequency here)
+        if (!currentBgTexture.toString().contains("forest") && random.nextFloat() < 0.0020f) {                  // 0.10% chance per frame to spawn a new cloud
+            Cloud cloud = cloudPool.obtain();                                                                   // Get a cloud from the pool
+            Texture randomTexture = cloudTextures.random();                                                     // Randomly select a cloud texture
+            cloud.setTexture(randomTexture);                                                                    // Set the texture to the cloud
 
             // Set cloud position and speed
             cloud.setPosition(800, random.nextInt(30) + 170);   // Clouds start at right side, random Y-position
@@ -366,6 +363,23 @@ public class GameScreen implements Screen {
         for (Obstacle obstacle : obstacles) {
             obstacle.render(batch);
         }
+    }
+
+    private void renderBackground() {
+        Sprite bgSprite = new Sprite(currentBgTexture);
+        bgSprite.setSize(viewport.getWorldWidth(), viewport.getWorldHeight());
+
+        bgFrameBuffer.begin();
+        Gdx.gl.glClearColor(1, 1, 1, 1);
+        Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
+
+        batch.begin();
+        bgSprite.draw(batch);
+        batch.end();
+
+        bgFrameBuffer.end();
+        bgFrameBufferTextureRegion = new TextureRegion(bgFrameBuffer.getColorBufferTexture());
+        bgFrameBufferTextureRegion.flip(false, true);           // Flip vertically to correct inversion
     }
 
     private void drawPorkyHitBox(){
@@ -411,6 +425,11 @@ public class GameScreen implements Screen {
         velocity = 0;
         obstacles.clear();
         score = 0;
+
+        // Reset the background to default
+        currentBgTexture.dispose(); // Dispose the current background
+        currentBgTexture = new Texture("newBackground.png");
+        renderBackground();
     }
 
     private void checkCollisions() {
