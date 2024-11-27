@@ -38,6 +38,7 @@ public class GameScreen implements Screen {
     private BitmapFont restartFont;
     private Rectangle porkyHitbox;
     private Pool<Cloud> cloudPool;
+    private BitmapFont scoreFont;
     private TextureAtlas atlas;
     private SpriteBatch batch;
     private Random random;
@@ -54,6 +55,7 @@ public class GameScreen implements Screen {
     private float accumulator = 0f;
     private float velocity = 0;
     private float porkyY = 0;                                   // Y-position for Porky
+    private int score = 0;
     float porkyX = 0;                                           // X-Position for Porky
 
 
@@ -85,6 +87,7 @@ public class GameScreen implements Screen {
         createCloudPool();
         handleFont();
         handleClouds();
+        handleScoreFont();
         handleBg();
     }
 
@@ -152,6 +155,7 @@ public class GameScreen implements Screen {
         batch.draw(bgFrameBufferTextureRegion, 0, 0, viewport.getWorldWidth(), viewport.getWorldHeight());
 
         renderClouds();
+        drawScore();
         renderObstacles();
         managePorkyAnimation();
         batch.end();
@@ -212,6 +216,7 @@ public class GameScreen implements Screen {
             if (obstacle.isOffScreen()) {
                 obstacles.removeIndex(i);
                 obstaclePool.free(obstacle);                       // Return to pool
+                score++;
             }
         }
         // Check for collisions
@@ -266,6 +271,18 @@ public class GameScreen implements Screen {
     private void handlePorkyAnimation(){
         Array<TextureAtlas.AtlasRegion> frames = atlas.findRegions("run");
         porkyAnimation = new Animation<>(0.1f, frames, Animation.PlayMode.LOOP);
+    }
+
+    private void handleScoreFont() {
+        FreeTypeFontGenerator generator = new FreeTypeFontGenerator(Gdx.files.internal("LuckiestGuy-Regular.ttf"));
+        FreeTypeFontParameter scoreFontParam = new FreeTypeFontParameter();
+
+        // Score Text Configuration
+        scoreFontParam.size = 40;
+        scoreFontParam.color = Color.ORANGE;  // Set the color of the score
+        scoreFont = generator.generateFont(scoreFontParam);
+
+        generator.dispose();  // Dispose of the generator after use
     }
 
     private void createObstaclePool(){
@@ -367,6 +384,11 @@ public class GameScreen implements Screen {
         }
     }
 
+    private void drawScore(){
+        String scoreText = "Score: " + score;  // The score display text
+        scoreFont.draw(batch, scoreText, 10, viewport.getWorldHeight() - 20);  // Draw in the top-left corner
+    }
+
     private void displayGameOverMessage() {
         if (isGameOver) {
             batch.begin();
@@ -388,6 +410,7 @@ public class GameScreen implements Screen {
         porkyY = 90;            // Reset Porky to the ground position
         velocity = 0;
         obstacles.clear();
+        score = 0;
     }
 
     private void checkCollisions() {
